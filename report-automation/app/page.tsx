@@ -122,7 +122,7 @@ export default function Home() {
         <div className="brand">
           <span className="brand-mark">FleetLog</span>
           <div>
-            <h1>EV Maintenance Automator</h1>
+            <h1>Tonly Team Maintenance Report </h1>
             <p>WhatsApp shift report → editable daily maintenance log</p>
           </div>
         </div>
