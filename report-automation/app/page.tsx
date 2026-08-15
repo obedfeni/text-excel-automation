@@ -177,7 +177,7 @@ export default function Home() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">FleetLog</span>
+          <span className="brand-mark">MaintenanceLog</span>
           <div>
             <h1>Tonly Team Maintenance Report </h1>
             <p>WhatsApp shift report → editable daily maintenance log</p>
