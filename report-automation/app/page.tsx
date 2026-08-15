@@ -5,7 +5,12 @@ import { parseReport } from '../lib/parser';
 import { computeDuration } from '../lib/time';
 import { CATEGORIES, Category, Job, Report } from '../lib/types';
 
-const SAMPLE = `10/08/2026 day shift 5:00pm
+const SAMPLE = `
+[DATE] [DAY/NIGHT] shift [TIME REPORT SENT]
+Health and Safety: [note, or "no safety incidents"]
+- [TRUCK ID] DOWN TIME: [H:MMam/pm]. [What was wrong]. [What was done]. UP TIME: [H:MMam/pm]. [TRUCK ID] is up.
+
+10/08/2026 day shift 5:00pm
 Health and Safety: no safety incidents
 -ET023 low coolant level. Coolant top up complete. ET023 is up
 -ET013 is down for leaking steering wheel oil hose. Steering oil hose replacement completed. ET013 is up
