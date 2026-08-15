@@ -40,12 +40,29 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resultBlob, setResultBlob] = useState<Blob | null>(null);
+  const [resultFilename, setResultFilename] = useState('');
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+
+  /** Wraps a report update so any edit invalidates a previously generated file - it no longer matches what's on screen. */
+  function mutateReport(updater: (r: Report) => Report) {
+    setReport((r) => (r ? updater(r) : r));
+    if (generated) {
+      setGenerated(false);
+      setResultBlob(null);
+      setResultFilename('');
+    }
+    setShareNotice(null);
+  }
 
   function handleParse() {
     if (!text.trim()) return;
     setReport(parseReport(text));
     setScreen('review');
     setGenerated(false);
+    setResultBlob(null);
+    setResultFilename('');
+    setShareNotice(null);
     setError(null);
   }
 
@@ -55,37 +72,38 @@ export default function Home() {
     setScreen('paste');
     setGenerated(false);
     setError(null);
+    setResultBlob(null);
+    setResultFilename('');
+    setShareNotice(null);
   }
 
   function updateJob(id: string, patch: Partial<Job>) {
-    setReport((r) => {
-      if (!r) return r;
-      return {
-        ...r,
-        jobs: r.jobs.map((job) => {
-          if (job.id !== id) return job;
-          const next = { ...job, ...patch, warnings: [] };
-          if ('downTime' in patch || 'upTime' in patch) {
-            next.duration = computeDuration(next.downTime, next.upTime);
-          }
-          return next;
-        }),
-      };
-    });
+    mutateReport((r) => ({
+      ...r,
+      jobs: r.jobs.map((job) => {
+        if (job.id !== id) return job;
+        const next = { ...job, ...patch, warnings: [] };
+        if ('downTime' in patch || 'upTime' in patch) {
+          next.duration = computeDuration(next.downTime, next.upTime);
+        }
+        return next;
+      }),
+    }));
   }
 
   function removeJob(id: string) {
-    setReport((r) => (r ? { ...r, jobs: r.jobs.filter((j) => j.id !== id) } : r));
+    mutateReport((r) => ({ ...r, jobs: r.jobs.filter((j) => j.id !== id) }));
   }
 
   function addJob() {
-    setReport((r) => (r ? { ...r, jobs: [...r.jobs, makeBlankJob()] } : r));
+    mutateReport((r) => ({ ...r, jobs: [...r.jobs, makeBlankJob()] }));
   }
 
-  async function download() {
+  async function generateReport() {
     if (!report) return;
     setBusy(true);
     setError(null);
+    setShareNotice(null);
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
@@ -97,18 +115,52 @@ export default function Home() {
         throw new Error(body?.error || `Report generation failed (${res.status}).`);
       }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `EV_Maintenance_${report.date || 'report'}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      setResultBlob(blob);
+      setResultFilename(`EV_Maintenance_${report.date || 'report'}.xlsx`);
       setGenerated(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong generating the report.');
     } finally {
       setBusy(false);
     }
+  }
+
+  function saveToDevice() {
+    if (!resultBlob) return;
+    const url = URL.createObjectURL(resultBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = resultFilename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function sendToWhatsApp() {
+    if (!resultBlob) return;
+    setShareNotice(null);
+    const file = new File([resultBlob], resultFilename, { type: resultBlob.type });
+    const nav = navigator as Navigator & {
+      canShare?: (data: { files: File[] }) => boolean;
+      share?: (data: { files: File[]; title?: string; text?: string }) => Promise<void>;
+    };
+
+    // On phones (Android Chrome, iOS Safari), the Web Share API opens the native
+    // share sheet with the file attached - WhatsApp shows up there directly.
+    if (nav.canShare?.({ files: [file] }) && nav.share) {
+      try {
+        await nav.share({ files: [file], title: 'Daily Maintenance Log', text: `EV Maintenance Report - ${report?.date || ''}` });
+        return;
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return; // user cancelled the share sheet
+        // fall through to the desktop fallback below
+      }
+    }
+
+    // Desktop browsers can't attach a file to WhatsApp automatically - save the
+    // file and open WhatsApp Web so it's one paste away from being attached.
+    saveToDevice();
+    window.open('https://web.whatsapp.com/', '_blank');
+    setShareNotice(`Saved "${resultFilename}" - attach it from your downloads in the WhatsApp chat that just opened.`);
   }
 
   const completedCount = report?.jobs.filter((j) => j.status === 'COMPLETED').length ?? 0;
@@ -169,7 +221,7 @@ export default function Home() {
                     id="date"
                     type="date"
                     value={report.date}
-                    onChange={(e) => setReport({ ...report, date: e.target.value })}
+                    onChange={(e) => mutateReport((r) => ({ ...r, date: e.target.value }))}
                   />
                 </div>
                 <div className="field">
@@ -177,7 +229,7 @@ export default function Home() {
                   <select
                     id="shift"
                     value={report.shift}
-                    onChange={(e) => setReport({ ...report, shift: e.target.value as Report['shift'] })}
+                    onChange={(e) => mutateReport((r) => ({ ...r, shift: e.target.value as Report['shift'] }))}
                   >
                     <option value="D">Day</option>
                     <option value="N">Night</option>
@@ -188,7 +240,7 @@ export default function Home() {
                   <input
                     id="safety"
                     value={report.safety}
-                    onChange={(e) => setReport({ ...report, safety: e.target.value })}
+                    onChange={(e) => mutateReport((r) => ({ ...r, safety: e.target.value }))}
                     placeholder="e.g. no safety incidents"
                   />
                 </div>
@@ -240,6 +292,8 @@ export default function Home() {
           <div className="footer-summary">
             {error ? (
               <strong style={{ color: 'var(--color-down)' }}>{error}</strong>
+            ) : shareNotice ? (
+              <strong>{shareNotice}</strong>
             ) : (
               <>
                 <strong>{report.jobs.length}</strong> job{report.jobs.length === 1 ? '' : 's'} for{' '}
@@ -247,9 +301,20 @@ export default function Home() {
               </>
             )}
           </div>
-          <button className="btn btn-amber" onClick={download} disabled={busy || hasBlockingIssues}>
-            {busy ? 'Generating…' : generated ? 'Download again' : 'Generate & download Excel'}
-          </button>
+          {!generated ? (
+            <button className="btn btn-amber" onClick={generateReport} disabled={busy || hasBlockingIssues}>
+              {busy ? 'Generating…' : 'Generate Excel report'}
+            </button>
+          ) : (
+            <div className="action-row" style={{ margin: 0 }}>
+              <button className="btn" onClick={saveToDevice}>
+                Save to device
+              </button>
+              <button className="btn btn-amber" onClick={sendToWhatsApp}>
+                Send via WhatsApp
+              </button>
+            </div>
+          )}
         </footer>
       )}
     </div>
